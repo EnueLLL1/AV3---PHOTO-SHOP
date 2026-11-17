@@ -1,0 +1,17 @@
+# Build outputs
+out/
+*.class
+
+# Local dependencies downloaded by scripts/setup-deps.*
+lib/*.jar
+tools/
+*.zip
+
+# Logs and temporary artifacts
+*.log
+.DS_Store
+Thumbs.db
+
+# Local agent/session state
+.agents/
+memoria/

@@ -1,0 +1,19 @@
+# Arquivo de exemplo de maquinas para execucao distribuida do MPJ Express (modo niodev)
+# Copie este arquivo para config/machines (ou machines na raiz) e ajuste com os IPs reais
+# das estacoes do laboratorio da UNEB.
+#
+# Regras do MPJ Express:
+# - Liste um IP ou hostname por linha (sem espacos extras).
+# - Todas as maquinas listadas devem ter acesso SSH sem senha (ou daemon MPJ ativo via mpjboot).
+# - O mesmo projeto/classpath e MPJ_HOME (tools/mpj) devem estar disponiveis no mesmo caminho
+#   em cada no (ou via diretorio compartilhado/NFS).
+#
+# Exemplo de uso no Linux apos configurar MPJ_HOME:
+#   $MPJ_HOME/bin/mpjboot config/machines
+#   $MPJ_HOME/bin/mpjrun.sh -np 4 -dev niodev -machinesfile config/machines ...
+#   $MPJ_HOME/bin/mpjhalt config/machines
+
+192.168.1.101
+192.168.1.102
+# 192.168.1.103
+# 192.168.1.104
