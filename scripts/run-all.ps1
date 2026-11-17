@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Script central: verifica dependencias, compila, roda toda a suite JUnit 5
     e executa a bancada end-to-end (Coordenador RMI/TCP + BENCHMARK_ALL + concorrência).
