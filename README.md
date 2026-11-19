@@ -233,3 +233,36 @@ Caso queira demonstrar aceleração OpenCL em GPU dedicada (ex.: NVIDIA T4/P100)
 - `src/main/resources/kernels/filters.cl` — Kernels OpenCL (`BLUR`, `SHARPEN`, `SOBEL`).
 - `scripts/` — Scripts de dependências, build e execução Windows/Linux.
 - `config/machines.example` — Modelo de arquivo de nós para `niodev`.
+
+---
+
+## 8. Interface de Apresentação — Web Studio Local (Java 21)
+
+A aplicação de apresentação (`estudio.gui.PresentationApp` + `estudio.gui.WebStudioServer`) sobe um **Web Studio Local** usando apenas o `HttpServer` nativo do **Java 21** (zero Node.js / npm), com inicialização automática opcional do Coordenador local embutido (`CoordinatorMain.startServer`) e abertura automática no navegador padrão em `http://127.0.0.1:8080` (ou porta livre automática caso a `8080` esteja ocupada e `--http-port` não tenha sido fixada).
+
+### Como iniciar
+- **Windows (PowerShell):**
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File scripts/run-gui.ps1
+  ```
+- **Linux (Bash):**
+  ```bash
+  ./scripts/run-gui.sh
+  ```
+
+### Flags opcionais
+- `--http-port <porta>` — Porta fixa do servidor HTTP local do Web Studio (padrão: `8080`).
+- `--no-browser` — Não abre o navegador automaticamente ao iniciar (imprime a URL no terminal).
+- `--no-auto-server` — Não inicia o Coordenador embutido automaticamente ao abrir (ideal para conectar a um Coordenador já ativo no laboratório).
+- `--host <endereco>` — Endereço do Coordenador RMI/TCP (padrão: `127.0.0.1`).
+- `--rmi-port <porta>` — Porta do registro Java RMI (padrão: `1099`).
+- `--tcp-port <porta>` — Porta do servidor de sockets TCP (padrão: `9090`).
+
+### Recursos principais, abas e atalhos
+- **Temas**: **Dark Studio** (padrão) e **Modo Claro / Projetor** alternáveis pela barra superior ou pela tecla `T`.
+- **Controles de servidor & Console RMI/TCP**: inicialização/parada do Coordenador Local, **Ping RMI** e gaveta de logs ao vivo (`L`).
+1. **1. Roteiro & Arquitetura AV3** — Diagrama da arquitetura RMI + TCP + 5 motores e divisão dos **5 membros** da equipe, com roteiro guiado de apresentação.
+2. **2. Estúdio Visual (Paridade)** — Upload de imagem (`PNG`/`JPG`) ou geração sintética, seleção de filtro (`BLUR`, `SHARPEN`, `SOBEL`) e motor, com **cortina interativa Antes/Depois** e **Mapa de Diff** pixel a pixel em relação ao `SEQUENTIAL`.
+3. **3. Bancada de Benchmark** — Geração de lote configurável e execução de `BENCHMARK_ALL` nos 5 motores, com **gráficos de benchmark** (Tempo / Speedup / Eficiência), tabela comparativa, destaque do vencedor e download de `CSV`/`TXT`.
+4. **4. Simulador de Concorrência** — Disparo simultâneo de múltiplos clientes na fila do Coordenador, exibindo **timeline Gantt** de execução, cartões por cliente (`COMPLETED`/`FAILED`) e métricas da onda.
+- **Atalhos de teclado**: `1–4` trocam de aba, `F` dispara a ação principal da aba ativa, `T` alterna Dark Studio / Modo Claro (Projetor) e `L` abre/fecha a gaveta de logs ao vivo.

@@ -1,0 +1,909 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <script>
+    try {
+      var savedScheme = localStorage.getItem("color-scheme");
+      var initialTheme = (savedScheme === "light" || savedScheme === "dark") ? savedScheme : "dark";
+      document.querySelector('meta[name="color-scheme"]').content = initialTheme;
+      document.documentElement.dataset.theme = initialTheme;
+    } catch (err) {
+      document.documentElement.dataset.theme = "dark";
+    }
+  </script>
+  <title>Estúdio de Imagens Distribuído — AV3</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Ir para o conteúdo principal</a>
+
+  <div class="app-shell" id="app-shell">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar" aria-label="Navegação principal">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="3"></rect>
+            <path d="M9 3v18"></path>
+            <path d="M14 9l3 3-3 3"></path>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <span class="brand-title">Estúdio de Imagens</span>
+          <span class="brand-sub">AV3 · Sistemas Distribuídos</span>
+        </div>
+      </div>
+
+      <nav class="side-nav" aria-label="Módulos do estúdio">
+        <button type="button" class="nav-item" data-module="arch" aria-current="page">
+          <span class="nav-num">01</span>
+          <span class="nav-copy">
+            <span class="nav-title">Arquitetura</span>
+            <span class="nav-desc">Fluxo &amp; 5 Membros</span>
+          </span>
+        </button>
+        <button type="button" class="nav-item" data-module="studio">
+          <span class="nav-num">02</span>
+          <span class="nav-copy">
+            <span class="nav-title">Estúdio Visual</span>
+            <span class="nav-desc">Antes / Depois / Diff</span>
+          </span>
+        </button>
+        <button type="button" class="nav-item" data-module="benchmark">
+          <span class="nav-num">03</span>
+          <span class="nav-copy">
+            <span class="nav-title">Benchmarks</span>
+            <span class="nav-desc">5 Motores &amp; Speedup</span>
+          </span>
+        </button>
+        <button type="button" class="nav-item" data-module="concurrency">
+          <span class="nav-num">04</span>
+          <span class="nav-copy">
+            <span class="nav-title">Concorrência</span>
+            <span class="nav-desc">Semáforo &amp; Gantt</span>
+          </span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="shortcut-card">
+          <div class="shortcut-heading">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="2" y="6" width="20" height="12" rx="2"></rect>
+              <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"></path>
+            </svg>
+            <span>Atalhos de Teclado</span>
+          </div>
+          <ul class="shortcut-list">
+            <li><kbd>1</kbd>–<kbd>4</kbd> <span>Módulos</span></li>
+            <li><kbd>F</kbd> <span>Apresentação</span></li>
+            <li><kbd>T</kbd> <span>Tema</span></li>
+            <li><kbd>L</kbd> <span>Logs RMI/TCP</span></li>
+          </ul>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Workspace -->
+    <div class="workspace">
+      <header class="topbar">
+        <div class="topbar-title-wrap">
+          <h1 class="topbar-title" id="topbar-title">Arquitetura do Sistema</h1>
+          <p class="topbar-subtitle" id="topbar-subtitle">Fluxo distribuído RMI/TCP, motores e divisão dos 5 membros</p>
+        </div>
+
+        <div class="topbar-actions">
+          <button type="button" class="conn-pill" id="btn-connection" data-state="checking" title="Configurar Coordenador RMI/TCP">
+            <span class="status-icon" id="conn-icon" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9"></circle>
+                <path d="M12 7v5l3 2"></path>
+              </svg>
+            </span>
+            <span class="conn-label tabular-nums" id="conn-label">Verificando…</span>
+          </button>
+
+          <button type="button" class="icon-text-btn" id="btn-theme" aria-pressed="false" title="Alternar tema Dark / Claro Projetor (T)">
+            <svg class="theme-icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="4"></circle>
+              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
+            </svg>
+            <svg class="theme-icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
+            </svg>
+            <span class="btn-label" id="theme-label">Claro</span>
+          </button>
+
+          <button type="button" class="icon-text-btn" id="btn-present" aria-pressed="false" title="Modo Apresentação para Projetor (F)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M2 3h20"></path>
+              <path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"></path>
+              <path d="m7 21 5-5 5 5"></path>
+            </svg>
+            <span class="btn-label">Apresentar</span>
+          </button>
+
+          <button type="button" class="icon-text-btn" id="btn-logs-toggle" aria-expanded="false" aria-controls="logs-drawer" title="Abrir/Fechar Logs RMI/TCP (L)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="4 17 10 11 4 5"></polyline>
+              <line x1="12" y1="19" x2="20" y2="19"></line>
+            </svg>
+            <span class="btn-label">Logs</span>
+            <span class="count-badge tabular-nums" id="logs-count-badge">0</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="main-content" id="main-content" tabindex="-1">
+        <!-- MODULE 01: ARQUITETURA -->
+        <section class="module-panel" id="module-arch" data-module-panel="arch" aria-labelledby="topbar-title">
+          <div class="arch-layout">
+            <article class="card arch-diagram-card">
+              <header class="card-header">
+                <div>
+                  <h2 class="card-title">Pipeline Distribuído &amp; Paralelo</h2>
+                  <p class="card-subtitle">Selecione um membro abaixo para destacar o segmento correspondente no fluxo</p>
+                </div>
+                <span class="chip chip-muted tabular-nums" id="arch-hw-chip">CPU: — · OpenCL: —</span>
+              </header>
+
+              <div class="svg-stage" role="img" aria-label="Diagrama do pipeline: Cliente envia comandos via Java RMI e imagens via TCP 64KB para o Coordenador com Semáforo, que despacha para os 5 motores de processamento, verifica pixels no PixelVerifier e devolve relatório e imagem final.">
+                <svg id="arch-svg" viewBox="0 0 920 290" class="arch-svg">
+                  <defs>
+                    <marker id="arrow-head" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                      <path d="M0,1 L7,4 L0,7 Z" fill="currentColor"></path>
+                    </marker>
+                  </defs>
+
+                  <!-- Edges -->
+                  <g class="arch-edges">
+                    <path class="arch-edge" data-members="1" d="M 145 120 L 210 75" marker-end="url(#arrow-head)"></path>
+                    <path class="arch-edge" data-members="1" d="M 145 160 L 210 205" marker-end="url(#arrow-head)"></path>
+                    <path class="arch-edge" data-members="1,2" d="M 355 75 L 415 125" marker-end="url(#arrow-head)"></path>
+                    <path class="arch-edge" data-members="1,2" d="M 355 205 L 415 155" marker-end="url(#arrow-head)"></path>
+                    <path class="arch-edge" data-members="2,3" d="M 555 118 L 620 75" marker-end="url(#arrow-head)"></path>
+                    <path class="arch-edge" data-members="2,4" d="M 555 140 L 620 140" marker-end="url(#arrow-head)"></path>
+                    <path class="arch-edge" data-members="2,5" d="M 555 162 L 620 205" marker-end="url(#arrow-head)"></path>
+                    <path class="arch-edge" data-members="3,5" d="M 760 75 L 800 118" marker-end="url(#arrow-head)"></path>
+                    <path class="arch-edge" data-members="4,5" d="M 760 140 L 800 140" marker-end="url(#arrow-head)"></path>
+                    <path class="arch-edge" data-members="5" d="M 760 205 L 800 162" marker-end="url(#arrow-head)"></path>
+                  </g>
+
+                  <!-- Nodes -->
+                  <g class="arch-node" data-members="1">
+                    <rect x="20" y="102" width="125" height="76" rx="10"></rect>
+                    <text x="82.5" y="132" text-anchor="middle" class="svg-node-title">Cliente</text>
+                    <text x="82.5" y="152" text-anchor="middle" class="svg-node-sub">Web / CLI / Swing</text>
+                  </g>
+
+                  <g class="arch-node" data-members="1">
+                    <rect x="215" y="38" width="140" height="66" rx="10"></rect>
+                    <text x="285" y="66" text-anchor="middle" class="svg-node-title">Java RMI</text>
+                    <text x="285" y="85" text-anchor="middle" class="svg-node-sub">Controle · Ticket · Ping</text>
+                  </g>
+
+                  <g class="arch-node" data-members="1">
+                    <rect x="215" y="176" width="140" height="66" rx="10"></rect>
+                    <text x="285" y="204" text-anchor="middle" class="svg-node-title">TCP 64 KB</text>
+                    <text x="285" y="223" text-anchor="middle" class="svg-node-sub">Frames PNG + Relatório</text>
+                  </g>
+
+                  <g class="arch-node" data-members="2">
+                    <rect x="420" y="96" width="135" height="88" rx="10"></rect>
+                    <text x="487.5" y="128" text-anchor="middle" class="svg-node-title">Coordenador</text>
+                    <text x="487.5" y="148" text-anchor="middle" class="svg-node-sub">Semaphore(N)</text>
+                    <text x="487.5" y="165" text-anchor="middle" class="svg-node-sub">Fila Concorrente</text>
+                  </g>
+
+                  <g class="arch-node" data-members="3">
+                    <rect x="625" y="34" width="135" height="62" rx="10"></rect>
+                    <text x="692.5" y="60" text-anchor="middle" class="svg-node-title">CPU Paralelo</text>
+                    <text x="692.5" y="79" text-anchor="middle" class="svg-node-sub">Seq · Rows · Blocks</text>
+                  </g>
+
+                  <g class="arch-node" data-members="4">
+                    <rect x="625" y="109" width="135" height="62" rx="10"></rect>
+                    <text x="692.5" y="135" text-anchor="middle" class="svg-node-title">MPJ Express</text>
+                    <text x="692.5" y="154" text-anchor="middle" class="svg-node-sub">Rank 0 ↔ Workers</text>
+                  </g>
+
+                  <g class="arch-node" data-members="5">
+                    <rect x="625" y="184" width="135" height="62" rx="10"></rect>
+                    <text x="692.5" y="210" text-anchor="middle" class="svg-node-title">GPU OpenCL</text>
+                    <text x="692.5" y="229" text-anchor="middle" class="svg-node-sub">JOCL · filters.cl</text>
+                  </g>
+
+                  <g class="arch-node" data-members="5">
+                    <rect x="805" y="96" width="100" height="88" rx="10"></rect>
+                    <text x="855" y="128" text-anchor="middle" class="svg-node-title">Verificação</text>
+                    <text x="855" y="148" text-anchor="middle" class="svg-node-sub">PixelVerifier</text>
+                    <text x="855" y="165" text-anchor="middle" class="svg-node-sub">CSV / PNG</text>
+                  </g>
+                </svg>
+              </div>
+            </article>
+
+            <div class="arch-bottom-grid">
+              <div class="member-grid" id="member-cards" role="list" aria-label="Membros da equipe">
+                <button type="button" class="member-card is-active" data-member="1" aria-pressed="true">
+                  <span class="member-badge tabular-nums">Membro 1</span>
+                  <strong class="member-name">Rede RMI &amp; Protocolo TCP</strong>
+                  <span class="member-scope">Registry, JobTicket e streaming de frames em chunks de 64 KB</span>
+                </button>
+                <button type="button" class="member-card" data-member="2" aria-pressed="false">
+                  <span class="member-badge tabular-nums">Membro 2</span>
+                  <strong class="member-name">Coordenador &amp; Semáforo</strong>
+                  <span class="member-scope">Controle de admissão concorrente (Semaphore) e fila de jobs</span>
+                </button>
+                <button type="button" class="member-card" data-member="3" aria-pressed="false">
+                  <span class="member-badge tabular-nums">Membro 3</span>
+                  <strong class="member-name">Paralelismo CPU (Rows &amp; Blocks)</strong>
+                  <span class="member-scope">Convolução 3×3 / 5×5 dividida por linhas ou tiles 2D</span>
+                </button>
+                <button type="button" class="member-card" data-member="4" aria-pressed="false">
+                  <span class="member-badge tabular-nums">Membro 4</span>
+                  <strong class="member-name">Distribuído — MPJ Express</strong>
+                  <span class="member-scope">Scatter/Gather MPI entre processos (multicore / niodev)</span>
+                </button>
+                <button type="button" class="member-card" data-member="5" aria-pressed="false">
+                  <span class="member-badge tabular-nums">Membro 5</span>
+                  <strong class="member-name">GPU OpenCL, Verifier &amp; Benchmarks</strong>
+                  <span class="member-scope">Kernels OpenCL, comparação pixel-a-pixel e Speedup</span>
+                </button>
+              </div>
+
+              <aside class="card script-card" aria-live="polite">
+                <div class="script-header">
+                  <span class="chip chip-primary tabular-nums" id="script-member-badge">Membro 1</span>
+                  <h3 class="script-title" id="script-title">Rede RMI &amp; Protocolo TCP</h3>
+                </div>
+                <p class="script-focus" id="script-focus"></p>
+                <ul class="script-points" id="script-points"></ul>
+                <div class="script-footer">
+                  <code class="script-classes" id="script-classes"></code>
+                  <button type="button" class="btn btn-primary" id="btn-goto-demo">
+                    <span>Ir para Demo</span>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M5 12h14"></path>
+                      <path d="m12 5 7 7-7 7"></path>
+                    </svg>
+                  </button>
+                </div>
+              </aside>
+            </div>
+          </div>
+        </section>
+
+        <!-- MODULE 02: ESTÚDIO VISUAL -->
+        <section class="module-panel" id="module-studio" data-module-panel="studio" hidden>
+          <div class="studio-layout">
+            <div class="studio-main">
+              <div class="card stage-card">
+                <div class="stage-toolbar" id="stage-toolbar" hidden>
+                  <div class="stage-file-meta">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+                      <circle cx="9" cy="9" r="2"></circle>
+                      <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path>
+                    </svg>
+                    <span class="tabular-nums" id="stage-file-info">—</span>
+                  </div>
+
+                  <div class="segmented" role="group" aria-label="Modo de visualização da imagem">
+                    <button type="button" class="seg-btn is-active" data-view-mode="curtain" aria-pressed="true">Cortina Antes/Depois</button>
+                    <button type="button" class="seg-btn" data-view-mode="side" aria-pressed="false">Lado a Lado</button>
+                    <button type="button" class="seg-btn" data-view-mode="diff" aria-pressed="false">Mapa de Diff</button>
+                  </div>
+
+                  <div class="stage-quick-actions">
+                    <button type="button" class="btn btn-ghost btn-sm" id="btn-swap-photo">Trocar Foto</button>
+                    <button type="button" class="btn btn-ghost btn-sm" id="btn-new-synthetic">Nova Sintética</button>
+                  </div>
+                </div>
+
+                <!-- Empty State / Dropzone -->
+                <div class="stage-viewport checkerboard" id="stage-viewport">
+                  <input type="file" id="studio-file-input" accept="image/png,image/jpeg,image/webp,image/bmp" class="sr-only">
+
+                  <div class="dropzone" id="studio-dropzone">
+                    <div class="dropzone-icon" aria-hidden="true">
+                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                      </svg>
+                    </div>
+                    <h2 class="dropzone-title">Arraste uma imagem PNG ou JPG aqui</h2>
+                    <p class="dropzone-sub">Ou gere uma imagem de teste sintética de alta definição no servidor</p>
+                    <div class="dropzone-actions">
+                      <button type="button" class="btn btn-primary" id="btn-upload-photo">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                          <polyline points="17 8 12 3 7 8"></polyline>
+                          <line x1="12" y1="3" x2="12" y2="15"></line>
+                        </svg>
+                        <span>Carregar Foto do PC</span>
+                      </button>
+                      <button type="button" class="btn btn-secondary" id="btn-gen-synthetic">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"></path>
+                        </svg>
+                        <span>Gerar Imagem Sintética</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Curtain View -->
+                  <div class="curtain-wrap" id="view-curtain" hidden style="--split: 50%;">
+                    <img id="img-curtain-before" class="stage-img stage-img-base" alt="Imagem original antes do processamento">
+                    <img id="img-curtain-after" class="stage-img stage-img-overlay" alt="Imagem processada depois do filtro">
+                    <span class="stage-tag stage-tag-left" id="tag-curtain-left">Depois</span>
+                    <span class="stage-tag stage-tag-right" id="tag-curtain-right">Antes</span>
+                    <div class="curtain-divider" id="curtain-divider" aria-hidden="true">
+                      <span class="curtain-handle">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="m9 18-6-6 6-6"></path>
+                          <path d="m15 6 6 6-6 6"></path>
+                        </svg>
+                      </span>
+                    </div>
+                    <div class="curtain-slider-bar">
+                      <label for="curtain-range" class="sr-only">Posição da cortina Antes e Depois (%)</label>
+                      <input type="range" id="curtain-range" min="0" max="100" value="50">
+                    </div>
+                  </div>
+
+                  <!-- Side-by-Side View -->
+                  <div class="side-wrap" id="view-side" hidden>
+                    <figure class="side-pane">
+                      <figcaption>Antes · Original</figcaption>
+                      <img id="img-side-before" alt="Imagem original">
+                    </figure>
+                    <figure class="side-pane">
+                      <figcaption>Depois · Processada</figcaption>
+                      <img id="img-side-after" alt="Imagem processada">
+                    </figure>
+                  </div>
+
+                  <!-- Diff Map View -->
+                  <div class="diff-wrap" id="view-diff" hidden>
+                    <img id="img-diff-map" class="stage-img" alt="Mapa de diferenças pixel a pixel">
+                    <p class="diff-empty-note" id="diff-empty-note" hidden>Execute o processamento com "Calcular Mapa de Diff vs Sequencial" marcado para gerar o heatmap.</p>
+                    <div class="diff-legend">
+                      <span class="legend-item"><span class="swatch swatch-ok" aria-hidden="true"></span>Verde escuro = igual ao Sequencial</span>
+                      <span class="legend-item"><span class="swatch swatch-diff" aria-hidden="true"></span>Magenta #FF00FF = divergente</span>
+                      <span class="legend-count tabular-nums" id="diff-legend-count">0 / 0 px</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 4 KPIs Strip -->
+              <div class="kpi-strip">
+                <div class="kpi-card">
+                  <span class="kpi-label">Tempo Computação</span>
+                  <strong class="kpi-value tabular-nums" id="studio-kpi-compute">—</strong>
+                </div>
+                <div class="kpi-card">
+                  <span class="kpi-label">Total RMI + TCP</span>
+                  <strong class="kpi-value tabular-nums" id="studio-kpi-total">—</strong>
+                </div>
+                <div class="kpi-card">
+                  <span class="kpi-label">Pixels Diferentes</span>
+                  <strong class="kpi-value tabular-nums" id="studio-kpi-diff">—</strong>
+                </div>
+                <div class="kpi-card">
+                  <span class="kpi-label">Verificação PixelVerifier</span>
+                  <strong class="kpi-value kpi-status" id="studio-kpi-verified">
+                    <span class="status-badge" data-tone="neutral">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="9"></circle>
+                      </svg>
+                      <span>Aguardando</span>
+                    </span>
+                  </strong>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right Control Panel -->
+            <aside class="card studio-controls">
+              <div class="control-group">
+                <h2 class="control-heading">1. Filtro de Convolução</h2>
+                <div class="choice-pills" id="studio-filter-group" role="radiogroup" aria-label="Filtro de imagem">
+                  <button type="button" class="choice-pill is-selected" data-filter="BLUR" role="radio" aria-checked="true">Gaussian Blur 5×5</button>
+                  <button type="button" class="choice-pill" data-filter="SHARPEN" role="radio" aria-checked="false">Sharpen 3×3</button>
+                  <button type="button" class="choice-pill" data-filter="SOBEL" role="radio" aria-checked="false">Sobel 3×3</button>
+                </div>
+              </div>
+
+              <div class="control-group">
+                <h2 class="control-heading">2. Motor de Execução</h2>
+                <div class="engine-list" id="studio-mode-group" role="radiogroup" aria-label="Motor de execução">
+                  <button type="button" class="engine-option" data-mode="SEQUENTIAL" role="radio" aria-checked="false">
+                    <span class="engine-name">Sequencial</span>
+                    <span class="engine-meta">1 worker · baseline</span>
+                  </button>
+                  <button type="button" class="engine-option" data-mode="THREADS_ROWS" role="radio" aria-checked="false">
+                    <span class="engine-name">Threads Linhas</span>
+                    <span class="engine-meta">CPU · faixas horizontais</span>
+                  </button>
+                  <button type="button" class="engine-option is-selected" data-mode="THREADS_BLOCKS" role="radio" aria-checked="true">
+                    <span class="engine-name">Threads Blocos</span>
+                    <span class="engine-meta">CPU · tiles 2D</span>
+                  </button>
+                  <button type="button" class="engine-option" data-mode="MPJ" role="radio" aria-checked="false">
+                    <span class="engine-name">MPJ Express</span>
+                    <span class="engine-meta">Distribuído · MPI ranks</span>
+                  </button>
+                  <button type="button" class="engine-option" data-mode="GPU" role="radio" aria-checked="false" id="studio-gpu-option">
+                    <span class="engine-name">GPU OpenCL</span>
+                    <span class="engine-meta" id="studio-gpu-meta">JOCL · kernel GPU</span>
+                  </button>
+                </div>
+                <p class="inline-warning" id="studio-gpu-warning" hidden>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path>
+                    <path d="M12 9v4M12 17h.01"></path>
+                  </svg>
+                  <span>OpenCL indisponível neste host; prefira motores CPU/MPJ.</span>
+                </p>
+              </div>
+
+              <details class="advanced-details">
+                <summary>Parâmetros avançados</summary>
+                <div class="advanced-grid">
+                  <div class="field">
+                    <label for="studio-threads">Threads CPU</label>
+                    <input type="number" id="studio-threads" min="1" max="64" value="4">
+                  </div>
+                  <div class="field">
+                    <label for="studio-tile">Tile Size (px)</label>
+                    <input type="number" id="studio-tile" min="8" max="2048" step="8" value="64">
+                  </div>
+                  <div class="field">
+                    <label for="studio-mpi">Processos MPI</label>
+                    <input type="number" id="studio-mpi" min="1" max="16" value="4">
+                  </div>
+                  <div class="field">
+                    <label for="studio-synth-size">Tamanho Sintética</label>
+                    <select id="studio-synth-size">
+                      <option value="384">384 × 384 px</option>
+                      <option value="512">512 × 512 px</option>
+                      <option value="1024">1024 × 1024 px</option>
+                    </select>
+                  </div>
+                </div>
+                <label class="checkbox-row" for="studio-compute-diff">
+                  <input type="checkbox" id="studio-compute-diff" class="visually-hidden-fallback" checked>
+                  <span>Calcular Mapa de Diff vs Sequencial</span>
+                </label>
+              </details>
+
+              <button type="button" class="btn btn-primary btn-lg btn-block" id="btn-studio-process" disabled>
+                <svg class="btn-spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56"></path>
+                </svg>
+                <span id="btn-studio-process-label">Processar via RMI/TCP</span>
+              </button>
+            </aside>
+          </div>
+        </section>
+
+        <!-- MODULE 03: BENCHMARKS -->
+        <section class="module-panel" id="module-benchmark" data-module-panel="benchmark" hidden>
+          <div class="bench-layout">
+            <article class="card bench-config-card">
+              <div class="bench-top-row">
+                <div class="preset-cards" role="radiogroup" aria-label="Preset de benchmark">
+                  <button type="button" class="preset-card is-selected" data-preset="fast" role="radio" aria-checked="true">
+                    <span class="preset-tag">Rápido</span>
+                    <strong class="tabular-nums">4× 256×256</strong>
+                    <span class="preset-desc">Validação imediata dos 5 motores</span>
+                  </button>
+                  <button type="button" class="preset-card" data-preset="medium" role="radio" aria-checked="false">
+                    <span class="preset-tag">Médio</span>
+                    <strong class="tabular-nums">8× 512×512</strong>
+                    <span class="preset-desc">Comparação nítida de Speedup</span>
+                  </button>
+                  <button type="button" class="preset-card" data-preset="full" role="radio" aria-checked="false">
+                    <div class="preset-title-row">
+                      <span class="preset-tag">Completo</span>
+                      <span class="badge-thermal">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0Z"></path>
+                        </svg>
+                        Alerta Térmico
+                      </span>
+                    </div>
+                    <strong class="tabular-nums">20× 4000×3000</strong>
+                    <span class="preset-desc">Carga pesada (240 MP totais)</span>
+                  </button>
+                </div>
+
+                <div class="bench-cta-col">
+                  <div class="field">
+                    <label for="bench-filter">Filtro</label>
+                    <select id="bench-filter">
+                      <option value="SOBEL">Sobel 3×3</option>
+                      <option value="BLUR">Gaussian Blur 5×5</option>
+                      <option value="SHARPEN">Sharpen 3×3</option>
+                    </select>
+                  </div>
+                  <button type="button" class="btn btn-primary btn-lg" id="btn-bench-run">
+                    <svg class="btn-spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
+                      <path d="M21 12a9 9 0 1 1-6.219-8.56"></path>
+                    </svg>
+                    <span id="btn-bench-run-label">Executar Benchmark Completo</span>
+                  </button>
+                </div>
+              </div>
+
+              <details class="advanced-details">
+                <summary>Ajuste fino do lote e motores</summary>
+                <div class="advanced-grid advanced-grid-6">
+                  <div class="field">
+                    <label for="bench-count">Qtd. Imagens</label>
+                    <input type="number" id="bench-count" min="1" max="50" value="4">
+                  </div>
+                  <div class="field">
+                    <label for="bench-width">Largura (px)</label>
+                    <input type="number" id="bench-width" min="16" max="6000" value="256">
+                  </div>
+                  <div class="field">
+                    <label for="bench-height">Altura (px)</label>
+                    <input type="number" id="bench-height" min="16" max="6000" value="256">
+                  </div>
+                  <div class="field">
+                    <label for="bench-threads">Threads</label>
+                    <input type="number" id="bench-threads" min="1" max="64" value="4">
+                  </div>
+                  <div class="field">
+                    <label for="bench-tile">Tile Size</label>
+                    <input type="number" id="bench-tile" min="8" max="2048" step="8" value="64">
+                  </div>
+                  <div class="field">
+                    <label for="bench-mpi">MPI Processos</label>
+                    <input type="number" id="bench-mpi" min="1" max="16" value="4">
+                  </div>
+                </div>
+              </details>
+            </article>
+
+            <!-- Winner Banner -->
+            <div class="winner-banner" id="bench-winner-banner" hidden>
+              <div class="winner-icon" aria-hidden="true">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path>
+                  <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path>
+                  <path d="M4 22h16"></path>
+                  <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"></path>
+                  <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"></path>
+                  <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"></path>
+                </svg>
+              </div>
+              <div class="winner-copy">
+                <span class="winner-eyebrow">Motor Vencedor (Computação Verificada)</span>
+                <strong class="winner-name" id="winner-name">—</strong>
+              </div>
+              <div class="winner-metrics tabular-nums">
+                <div class="winner-metric">
+                  <span>Computação</span>
+                  <strong id="winner-compute">—</strong>
+                </div>
+                <div class="winner-metric">
+                  <span>Speedup</span>
+                  <strong id="winner-speedup">—</strong>
+                </div>
+                <div class="winner-metric">
+                  <span>Status</span>
+                  <strong id="winner-status">—</strong>
+                </div>
+              </div>
+            </div>
+
+            <!-- Interactive SVG Charts -->
+            <div class="charts-grid">
+              <article class="card chart-card">
+                <header class="card-header">
+                  <div>
+                    <h2 class="card-title">Tempo de Execução (ms)</h2>
+                    <p class="card-subtitle">Computação vs Total (RMI+TCP), ordenado do mais rápido</p>
+                  </div>
+                  <div class="chart-legend">
+                    <span class="legend-item"><span class="swatch swatch-primary" aria-hidden="true"></span>Computação</span>
+                    <span class="legend-item"><span class="swatch swatch-accent" aria-hidden="true"></span>Total</span>
+                  </div>
+                </header>
+                <div class="chart-host" id="chart-time-host">
+                  <p class="empty-chart-msg">Execute um benchmark para visualizar a comparação de tempo.</p>
+                </div>
+              </article>
+
+              <article class="card chart-card">
+                <header class="card-header">
+                  <div>
+                    <h2 class="card-title">Speedup &amp; Eficiência (%)</h2>
+                    <p class="card-subtitle">Comparado ao baseline Sequencial (linha tracejada = 1.0×)</p>
+                  </div>
+                </header>
+                <div class="chart-host" id="chart-speedup-host">
+                  <p class="empty-chart-msg">Execute um benchmark para visualizar Speedup e Eficiência.</p>
+                </div>
+              </article>
+            </div>
+
+            <!-- Responsive Sortable Table -->
+            <article class="card table-card">
+              <header class="card-header">
+                <div>
+                  <h2 class="card-title" id="bench-table-caption">Resultados Detalhados por Motor</h2>
+                  <p class="card-subtitle" id="bench-meta-summary">Clique nos cabeçalhos das colunas para ordenar</p>
+                </div>
+                <div class="export-actions">
+                  <button type="button" class="btn btn-secondary btn-sm" id="btn-export-csv" disabled>Exportar CSV</button>
+                  <button type="button" class="btn btn-secondary btn-sm" id="btn-export-txt" disabled>Exportar TXT</button>
+                </div>
+              </header>
+
+              <div tabindex="0" role="region" aria-labelledby="bench-table-caption" class="table-wrapper">
+                <table class="bench-table" id="bench-table">
+                  <thead>
+                    <tr>
+                      <th scope="col" aria-sort="none"><button type="button" class="sort-btn" data-sort="versionName">Motor</button></th>
+                      <th scope="col" aria-sort="none"><button type="button" class="sort-btn" data-sort="workers">Workers</button></th>
+                      <th scope="col" aria-sort="ascending"><button type="button" class="sort-btn" data-sort="computeMs">Computação (ms)</button></th>
+                      <th scope="col" aria-sort="none"><button type="button" class="sort-btn" data-sort="totalMs">Total (ms)</button></th>
+                      <th scope="col" aria-sort="none"><button type="button" class="sort-btn" data-sort="speedup">Speedup</button></th>
+                      <th scope="col" aria-sort="none"><button type="button" class="sort-btn" data-sort="efficiencyPct">Eficiência</button></th>
+                      <th scope="col" aria-sort="none"><button type="button" class="sort-btn" data-sort="diffPixels">Diff Pixels</button></th>
+                      <th scope="col" aria-sort="none"><button type="button" class="sort-btn" data-sort="verified">Verificado</button></th>
+                      <th scope="col">Notas</th>
+                    </tr>
+                  </thead>
+                  <tbody id="bench-tbody">
+                    <tr class="empty-row">
+                      <td colspan="9">Nenhum benchmark executado nesta sessão.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <!-- MODULE 04: CONCORRÊNCIA -->
+        <section class="module-panel" id="module-concurrency" data-module-panel="concurrency" hidden>
+          <div class="conc-layout">
+            <article class="card conc-controls-card">
+              <div class="conc-controls-grid">
+                <div class="field">
+                  <span class="field-label">Nº de Clientes</span>
+                  <div class="segmented" id="conc-clients-group" role="radiogroup" aria-label="Número de clientes simultâneos">
+                    <button type="button" class="seg-btn" data-clients="2" role="radio" aria-checked="false">2 Clientes</button>
+                    <button type="button" class="seg-btn is-active" data-clients="4" role="radio" aria-checked="true">4 Clientes</button>
+                    <button type="button" class="seg-btn" data-clients="6" role="radio" aria-checked="false">6 Clientes</button>
+                  </div>
+                </div>
+
+                <div class="field">
+                  <label for="conc-filter">Filtro</label>
+                  <select id="conc-filter">
+                    <option value="BLUR">Gaussian Blur 5×5</option>
+                    <option value="SHARPEN">Sharpen 3×3</option>
+                    <option value="SOBEL">Sobel 3×3</option>
+                  </select>
+                </div>
+
+                <div class="field">
+                  <label for="conc-mode">Motor</label>
+                  <select id="conc-mode">
+                    <option value="THREADS_BLOCKS">Threads Blocos</option>
+                    <option value="THREADS_ROWS">Threads Linhas</option>
+                    <option value="SEQUENTIAL">Sequencial</option>
+                    <option value="MPJ">MPJ Express</option>
+                    <option value="GPU">GPU OpenCL</option>
+                  </select>
+                </div>
+
+                <div class="field">
+                  <span class="field-label">Lote por Cliente</span>
+                  <div class="static-pill tabular-nums">2× 128×128 px</div>
+                </div>
+
+                <div class="field">
+                  <span class="field-label">Limite do Semáforo</span>
+                  <div class="semaphore-inline">
+                    <strong class="tabular-nums" id="conc-sem-limit">—</strong>
+                    <button type="button" class="btn btn-ghost btn-sm" id="btn-adjust-semaphore">Ajustar no Coordenador</button>
+                  </div>
+                </div>
+
+                <div class="conc-cta">
+                  <button type="button" class="btn btn-primary btn-lg" id="btn-conc-run">
+                    <svg class="btn-spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
+                      <path d="M21 12a9 9 0 1 1-6.219-8.56"></path>
+                    </svg>
+                    <span id="btn-conc-run-label">Disparar Clientes em Paralelo</span>
+                  </button>
+                </div>
+              </div>
+            </article>
+
+            <!-- Wave KPIs -->
+            <div class="kpi-strip">
+              <div class="kpi-card">
+                <span class="kpi-label">Tempo Total da Onda</span>
+                <strong class="kpi-value tabular-nums" id="conc-kpi-wave">—</strong>
+              </div>
+              <div class="kpi-card">
+                <span class="kpi-label">Limite Semáforo</span>
+                <strong class="kpi-value tabular-nums" id="conc-kpi-limit">—</strong>
+              </div>
+              <div class="kpi-card">
+                <span class="kpi-label">Concluídos</span>
+                <strong class="kpi-value tabular-nums" id="conc-kpi-done">—</strong>
+              </div>
+              <div class="kpi-card">
+                <span class="kpi-label">Taxa de Sucesso</span>
+                <strong class="kpi-value tabular-nums" id="conc-kpi-rate">—</strong>
+              </div>
+            </div>
+
+            <!-- Gantt Chart -->
+            <article class="card chart-card">
+              <header class="card-header">
+                <div>
+                  <h2 class="card-title">Linha do Tempo Concorrente (Gantt)</h2>
+                  <p class="card-subtitle">Passe o mouse ou navegue via Tab nas barras para inspecionar jobId, início, fim e duração</p>
+                </div>
+                <div class="chart-legend">
+                  <span class="legend-item"><span class="swatch swatch-success" aria-hidden="true"></span>Sucesso / Verificado</span>
+                  <span class="legend-item"><span class="swatch swatch-danger" aria-hidden="true"></span>Erro</span>
+                </div>
+              </header>
+              <div class="chart-host" id="gantt-host">
+                <p class="empty-chart-msg">Dispare uma onda de clientes para observar o escalonamento pelo Semaphore do coordenador.</p>
+              </div>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- Presentation Mode Floating Bar -->
+  <div class="present-bar" id="present-bar" hidden>
+    <div class="present-nav" role="navigation" aria-label="Navegação rápida em modo apresentação">
+      <button type="button" class="present-btn" data-module="arch">01</button>
+      <button type="button" class="present-btn" data-module="studio">02</button>
+      <button type="button" class="present-btn" data-module="benchmark">03</button>
+      <button type="button" class="present-btn" data-module="concurrency">04</button>
+    </div>
+    <button type="button" class="btn btn-secondary btn-sm" id="btn-present-exit">Sair (F)</button>
+  </div>
+
+  <!-- Collapsible Bottom Logs Drawer -->
+  <section class="logs-drawer" id="logs-drawer" aria-label="Logs RMI e TCP" hidden>
+    <header class="logs-header">
+      <div class="logs-title-group">
+        <h2 class="logs-title">Logs RMI / TCP</h2>
+        <span class="count-badge tabular-nums" id="logs-drawer-count">0</span>
+      </div>
+      <div class="logs-controls">
+        <label for="logs-search" class="sr-only">Filtrar logs</label>
+        <input type="search" id="logs-search" placeholder="Filtrar por texto, origem ou nível…">
+        <button type="button" class="btn btn-ghost btn-sm" id="btn-logs-refresh">Atualizar</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="btn-logs-copy">Copiar</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="btn-logs-clear">Limpar</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-logs-close">Fechar</button>
+      </div>
+    </header>
+    <div class="logs-body" id="logs-body" role="log" aria-live="polite">
+      <p class="logs-empty">Nenhum log carregado.</p>
+    </div>
+  </section>
+
+  <!-- Shared Interactive SVG Tooltip -->
+  <div class="svg-tooltip" id="svg-tooltip" role="tooltip" hidden></div>
+
+  <!-- Toast feedback -->
+  <div class="toast-region" id="toast-region" role="status" aria-live="polite"></div>
+
+  <!-- Connection / Coordinator Dialog -->
+  <dialog id="connection-dialog" closedby="any" aria-labelledby="conn-dialog-title">
+    <form class="dialog-panel" id="connection-form" method="dialog">
+      <header class="dialog-header">
+        <div>
+          <h2 class="dialog-title" id="conn-dialog-title">Coordenador &amp; Rede RMI/TCP</h2>
+          <p class="dialog-sub">Configure host, portas, semáforo concorrente e transporte MPJ</p>
+        </div>
+        <button type="submit" class="icon-close-btn" value="close" aria-label="Fechar configurações">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18 6 6 18"></path>
+            <path d="m6 6 12 12"></path>
+          </svg>
+        </button>
+      </header>
+
+      <div class="dialog-body">
+        <div class="conn-status-banner" id="dialog-status-banner">
+          <span id="dialog-status-text">Coordenador: verificando…</span>
+          <span class="tabular-nums" id="dialog-ping-text">—</span>
+        </div>
+
+        <div class="form-grid-2">
+          <div class="field">
+            <label for="cfg-host">Host RMI/TCP</label>
+            <input type="text" id="cfg-host" value="127.0.0.1" required>
+          </div>
+          <div class="field">
+            <label for="cfg-mpi-dev">Dispositivo MPJ</label>
+            <select id="cfg-mpi-dev">
+              <option value="multicore">multicore (local)</option>
+              <option value="niodev">niodev (rede)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="cfg-rmi-port">Porta RMI</label>
+            <input type="number" id="cfg-rmi-port" min="1" max="65535" value="1099" required>
+          </div>
+          <div class="field">
+            <label for="cfg-tcp-port">Porta TCP</label>
+            <input type="number" id="cfg-tcp-port" min="1" max="65535" value="9090" required>
+          </div>
+          <div class="field form-span-2">
+            <label for="cfg-max-concurrent">Máximo de Jobs Simultâneos (Semaphore)</label>
+            <input type="number" id="cfg-max-concurrent" min="1" max="16" value="2" required>
+          </div>
+        </div>
+      </div>
+
+      <footer class="dialog-footer dialog-footer-wrap">
+        <button type="button" class="btn btn-ghost" id="btn-cfg-ping">Testar Ping RMI</button>
+        <button type="button" class="btn btn-secondary" id="btn-cfg-save">Salvar Config</button>
+        <button type="button" class="btn btn-danger-outline" id="btn-srv-stop">Parar Coordenador</button>
+        <button type="button" class="btn btn-primary" id="btn-srv-start">Iniciar / Reiniciar Coordenador</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Thermal Protection Confirmation Dialog -->
+  <dialog id="thermal-dialog" closedby="any" aria-labelledby="thermal-dialog-title">
+    <form class="dialog-panel dialog-panel-sm" method="dialog">
+      <header class="dialog-header">
+        <div class="thermal-title-wrap">
+          <span class="thermal-badge-icon" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0Z"></path>
+            </svg>
+          </span>
+          <h2 class="dialog-title" id="thermal-dialog-title">Confirmar Carga Térmica Alta</h2>
+        </div>
+        <button type="submit" class="icon-close-btn" value="cancel" aria-label="Cancelar benchmark pesado">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18 6 6 18"></path>
+            <path d="m6 6 12 12"></path>
+          </svg>
+        </button>
+      </header>
+
+      <div class="dialog-body">
+        <p class="dialog-copy" id="thermal-dialog-msg">
+          Este benchmark processará um lote pesado (ex.: 20× 4000×3000 px) em todos os 5 motores em sequência, exigindo alto uso sustentado de CPU/GPU e memória.
+        </p>
+        <p class="dialog-hint">Recomendado usar fonte conectada e ventilação desobstruída antes de continuar.</p>
+      </div>
+
+      <footer class="dialog-footer">
+        <button type="submit" class="btn btn-ghost" value="cancel">Cancelar</button>
+        <button type="submit" class="btn btn-primary" value="confirm">Confirmar e Executar</button>
+      </footer>
+    </form>
+  </dialog>
+</body>
+</html>
