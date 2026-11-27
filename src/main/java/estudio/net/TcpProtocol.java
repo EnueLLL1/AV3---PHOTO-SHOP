@@ -9,6 +9,7 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -22,6 +23,8 @@ public final class TcpProtocol {
     public static final byte FRAME_DONE = 0x04;
     public static final byte FRAME_ERROR = (byte) 0xFF;
 
+    public static final long MAX_FILE_SIZE_BYTES = 256L * 1024L * 1024L;
+    private static final int MAX_REPORT_STRING_BYTES = 32 * 1024 * 1024;
     private static final int CHUNK_SIZE = 65_536;
 
     public record UploadBatch(String jobId, List<Path> files) {
@@ -120,8 +123,8 @@ public final class TcpProtocol {
         }
 
         out.writeByte(FRAME_REPORT);
-        out.writeUTF(report.formatTable());
-        out.writeUTF(report.toCsv());
+        writeLargeUtf(out, report.formatTable());
+        writeLargeUtf(out, report.toCsv());
         out.writeLong(totalDiffs);
         out.writeBoolean(allVerified);
         out.flush();
@@ -129,11 +132,30 @@ public final class TcpProtocol {
 
     public static ReportFrame readReportPayload(DataInputStream in) throws IOException {
         Objects.requireNonNull(in, "in must not be null");
-        String tableText = in.readUTF();
-        String csvText = in.readUTF();
+        String tableText = readLargeUtf(in);
+        String csvText = readLargeUtf(in);
         long diffPixels = in.readLong();
         boolean verified = in.readBoolean();
         return new ReportFrame(tableText, csvText, diffPixels, verified);
+    }
+
+    private static void writeLargeUtf(DataOutputStream out, String value) throws IOException {
+        byte[] bytes = (value == null ? "" : value).getBytes(StandardCharsets.UTF_8);
+        if (bytes.length > MAX_REPORT_STRING_BYTES) {
+            throw new IOException("Report string exceeds maximum allowed size: " + bytes.length);
+        }
+        out.writeInt(bytes.length);
+        out.write(bytes);
+    }
+
+    private static String readLargeUtf(DataInputStream in) throws IOException {
+        int len = in.readInt();
+        if (len < 0 || len > MAX_REPORT_STRING_BYTES) {
+            throw new IOException("Invalid report string length: " + len);
+        }
+        byte[] bytes = new byte[len];
+        in.readFully(bytes);
+        return new String(bytes, StandardCharsets.UTF_8);
     }
 
     public static void sendImage(DataOutputStream out, Path imageFile) throws IOException {
@@ -205,6 +227,10 @@ public final class TcpProtocol {
         long size = in.readLong();
         if (size < 0) {
             throw new IOException("Negative file size for " + rawName + ": " + size);
+        }
+        if (size > MAX_FILE_SIZE_BYTES) {
+            throw new IOException("File size exceeds maximum allowed limit (" + MAX_FILE_SIZE_BYTES + " bytes) for "
+                    + rawName + ": " + size);
         }
 
         Path target = resolveSafeFile(dirAbs, rawName);

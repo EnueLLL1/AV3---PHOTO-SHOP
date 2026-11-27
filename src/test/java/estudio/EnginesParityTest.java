@@ -58,15 +58,15 @@ class EnginesParityTest {
         List<Path> inputs = DatasetGenerator.generateDataset(inputDir, 2, 64, 48);
 
         ImageEngine sequential = new SequentialEngine();
-        ImageEngine gpu = new OpenClGpuEngine();
+        try (OpenClGpuEngine gpu = new OpenClGpuEngine()) {
+            for (FilterType filter : FilterType.values()) {
+                Path filterRoot = tempDir.resolve(filter.name().toLowerCase(Locale.ROOT));
+                Path seqOut = filterRoot.resolve("seq");
+                sequential.process(inputs, seqOut, filter, null);
+                List<Path> seqFiles = listSortedPngs(seqOut);
 
-        for (FilterType filter : FilterType.values()) {
-            Path filterRoot = tempDir.resolve(filter.name().toLowerCase(Locale.ROOT));
-            Path seqOut = filterRoot.resolve("seq");
-            sequential.process(inputs, seqOut, filter, null);
-            List<Path> seqFiles = listSortedPngs(seqOut);
-
-            assertEngineParity("GPU_OPENCL", gpu, inputs, seqFiles, filterRoot.resolve("gpu"), filter);
+                assertEngineParity("GPU_OPENCL", gpu, inputs, seqFiles, filterRoot.resolve("gpu"), filter);
+            }
         }
     }
 

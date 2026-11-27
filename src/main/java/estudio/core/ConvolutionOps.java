@@ -68,6 +68,9 @@ public final class ConvolutionOps {
         Objects.requireNonNull(src, "src must not be null");
         Objects.requireNonNull(dst, "dst must not be null");
         Objects.requireNonNull(filter, "filter must not be null");
+        if (src == dst) {
+            throw new IllegalArgumentException("src and dst must not be the same ImageBuffer instance");
+        }
         if (src.width != dst.width || src.height != dst.height) {
             throw new IllegalArgumentException(
                     "Dimension mismatch: src=" + src.width + "x" + src.height

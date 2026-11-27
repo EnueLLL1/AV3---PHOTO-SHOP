@@ -26,7 +26,7 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
-public class OpenClGpuEngine implements ImageEngine {
+public class OpenClGpuEngine implements ImageEngine, AutoCloseable {
     public static final String ENGINE_NAME = "GPU_OPENCL";
     private static final String KERNEL_RESOURCE = "/kernels/filters.cl";
     private static final Path KERNEL_FALLBACK_PATH = Path.of("src", "main", "resources", "kernels", "filters.cl");
@@ -34,6 +34,13 @@ public class OpenClGpuEngine implements ImageEngine {
 
     private record SelectedDevice(cl_platform_id platform, cl_device_id device) {
     }
+
+    private cl_context cachedContext;
+    private cl_command_queue cachedQueue;
+    private cl_program cachedProgram;
+    private String cachedDeviceName;
+    private String cachedDeviceTypeLabel;
+    private int cachedWorkers;
 
     public String engineName() {
         return ENGINE_NAME;
@@ -49,7 +56,7 @@ public class OpenClGpuEngine implements ImageEngine {
     }
 
     @Override
-    public EngineResult process(
+    public synchronized EngineResult process(
             List<Path> inputFiles,
             Path outputDir,
             FilterType filter,
@@ -62,24 +69,95 @@ public class OpenClGpuEngine implements ImageEngine {
         CL.setExceptionsEnabled(true);
 
         long totalStartNs = System.nanoTime();
-        long computeNs = 0L;
+        long kernelNs = 0L;
+        long transferNs = 0L;
 
+        ensureInitialized();
+
+        cl_kernel kernel = null;
+        try {
+            kernel = CL.clCreateKernel(cachedProgram, kernelNameFor(filter), null);
+
+            int total = inputFiles.size();
+            for (int i = 0; i < total; i++) {
+                Path inputFile = Objects.requireNonNull(inputFiles.get(i), "inputFiles element must not be null");
+                ImageBuffer src = ImageBuffer.read(inputFile);
+                ImageBuffer dst = src.cloneEmpty();
+
+                cl_mem srcMem = null;
+                cl_mem dstMem = null;
+                try {
+                    long byteSize = (long) src.pixels.length * Sizeof.cl_int;
+                    long h2dStartNs = System.nanoTime();
+                    srcMem = CL.clCreateBuffer(cachedContext, CL.CL_MEM_READ_ONLY, byteSize, null, null);
+                    dstMem = CL.clCreateBuffer(cachedContext, CL.CL_MEM_WRITE_ONLY, byteSize, null, null);
+                    CL.clEnqueueWriteBuffer(
+                            cachedQueue, srcMem, CL.CL_TRUE, 0, byteSize, Pointer.to(src.pixels), 0, null, null);
+                    transferNs += System.nanoTime() - h2dStartNs;
+
+                    CL.clSetKernelArg(kernel, 0, Sizeof.cl_mem, Pointer.to(srcMem));
+                    CL.clSetKernelArg(kernel, 1, Sizeof.cl_mem, Pointer.to(dstMem));
+                    CL.clSetKernelArg(kernel, 2, Sizeof.cl_int, Pointer.to(new int[]{src.width}));
+                    CL.clSetKernelArg(kernel, 3, Sizeof.cl_int, Pointer.to(new int[]{src.height}));
+
+                    long[] globalWorkSize = new long[]{src.width, src.height};
+                    long kernelStartNs = System.nanoTime();
+                    CL.clEnqueueNDRangeKernel(cachedQueue, kernel, 2, null, globalWorkSize, null, 0, null, null);
+                    CL.clFinish(cachedQueue);
+                    kernelNs += System.nanoTime() - kernelStartNs;
+
+                    long d2hStartNs = System.nanoTime();
+                    CL.clEnqueueReadBuffer(
+                            cachedQueue, dstMem, CL.CL_TRUE, 0, byteSize, Pointer.to(dst.pixels), 0, null, null);
+                    transferNs += System.nanoTime() - d2hStartNs;
+                } finally {
+                    releaseMemQuietly(dstMem);
+                    releaseMemQuietly(srcMem);
+                }
+
+                String outName = BatchEngineSupport.outputFileName(inputFile);
+                dst.writePng(outputDir.resolve(outName));
+
+                if (listener != null) {
+                    listener.onProgress(i + 1, total, outName);
+                }
+            }
+        } finally {
+            releaseKernelQuietly(kernel);
+        }
+
+        long computeNs = kernelNs + transferNs;
+        long totalNs = System.nanoTime() - totalStartNs;
+        long kernelMs = TimeUnit.NANOSECONDS.toMillis(kernelNs);
+        long transferMs = TimeUnit.NANOSECONDS.toMillis(transferNs);
+        String details = cachedDeviceName
+                + " (" + cachedDeviceTypeLabel
+                + ", kernelMs=" + kernelMs
+                + ", transferMs=" + transferMs + ")";
+        return new EngineResult(
+                engineName(),
+                cachedWorkers,
+                TimeUnit.NANOSECONDS.toMillis(computeNs),
+                TimeUnit.NANOSECONDS.toMillis(totalNs),
+                details);
+    }
+
+    private void ensureInitialized() throws IOException {
+        if (cachedProgram != null && cachedQueue != null && cachedContext != null) {
+            return;
+        }
         SelectedDevice selected = selectDevice(System.getProperty(DEVICE_TYPE_PROPERTY));
         if (selected == null) {
             throw new IllegalStateException("No OpenCL device available");
         }
-
         String kernelSource = loadKernelSource();
         String deviceName = getDeviceString(selected.device, CL.CL_DEVICE_NAME);
         String deviceTypeLabel = getDeviceTypeLabel(selected.device);
         int workers = Math.max(1, getDeviceInt(selected.device, CL.CL_DEVICE_MAX_COMPUTE_UNITS));
-        String details = deviceName + " (" + deviceTypeLabel + ")";
 
         cl_context context = null;
         cl_command_queue queue = null;
         cl_program program = null;
-        cl_kernel kernel = null;
-
         try {
             cl_context_properties contextProps = new cl_context_properties();
             contextProps.addProperty(CL.CL_CONTEXT_PLATFORM, selected.platform);
@@ -94,62 +172,29 @@ public class OpenClGpuEngine implements ImageEngine {
             queue = createCommandQueue(context, selected.device);
             program = CL.clCreateProgramWithSource(context, 1, new String[]{kernelSource}, null, null);
             buildProgram(program, selected.device);
-            kernel = CL.clCreateKernel(program, kernelNameFor(filter), null);
 
-            int total = inputFiles.size();
-            for (int i = 0; i < total; i++) {
-                Path inputFile = Objects.requireNonNull(inputFiles.get(i), "inputFiles element must not be null");
-                ImageBuffer src = ImageBuffer.read(inputFile);
-                ImageBuffer dst = src.cloneEmpty();
-
-                cl_mem srcMem = null;
-                cl_mem dstMem = null;
-                long computeStartNs = System.nanoTime();
-                try {
-                    long byteSize = (long) src.pixels.length * Sizeof.cl_int;
-                    srcMem = CL.clCreateBuffer(context, CL.CL_MEM_READ_ONLY, byteSize, null, null);
-                    dstMem = CL.clCreateBuffer(context, CL.CL_MEM_WRITE_ONLY, byteSize, null, null);
-
-                    CL.clEnqueueWriteBuffer(
-                            queue, srcMem, CL.CL_TRUE, 0, byteSize, Pointer.to(src.pixels), 0, null, null);
-
-                    CL.clSetKernelArg(kernel, 0, Sizeof.cl_mem, Pointer.to(srcMem));
-                    CL.clSetKernelArg(kernel, 1, Sizeof.cl_mem, Pointer.to(dstMem));
-                    CL.clSetKernelArg(kernel, 2, Sizeof.cl_int, Pointer.to(new int[]{src.width}));
-                    CL.clSetKernelArg(kernel, 3, Sizeof.cl_int, Pointer.to(new int[]{src.height}));
-
-                    long[] globalWorkSize = new long[]{src.width, src.height};
-                    CL.clEnqueueNDRangeKernel(queue, kernel, 2, null, globalWorkSize, null, 0, null, null);
-                    CL.clEnqueueReadBuffer(
-                            queue, dstMem, CL.CL_TRUE, 0, byteSize, Pointer.to(dst.pixels), 0, null, null);
-                    CL.clFinish(queue);
-                } finally {
-                    releaseMemQuietly(dstMem);
-                    releaseMemQuietly(srcMem);
-                }
-                computeNs += System.nanoTime() - computeStartNs;
-
-                String outName = BatchEngineSupport.outputFileName(inputFile);
-                dst.writePng(outputDir.resolve(outName));
-
-                if (listener != null) {
-                    listener.onProgress(i + 1, total, outName);
-                }
-            }
-        } finally {
-            releaseKernelQuietly(kernel);
+            cachedContext = context;
+            cachedQueue = queue;
+            cachedProgram = program;
+            cachedDeviceName = deviceName;
+            cachedDeviceTypeLabel = deviceTypeLabel;
+            cachedWorkers = workers;
+        } catch (RuntimeException e) {
             releaseProgramQuietly(program);
             releaseQueueQuietly(queue);
             releaseContextQuietly(context);
+            throw e;
         }
+    }
 
-        long totalNs = System.nanoTime() - totalStartNs;
-        return new EngineResult(
-                engineName(),
-                workers,
-                TimeUnit.NANOSECONDS.toMillis(computeNs),
-                TimeUnit.NANOSECONDS.toMillis(totalNs),
-                details);
+    @Override
+    public synchronized void close() {
+        releaseProgramQuietly(cachedProgram);
+        releaseQueueQuietly(cachedQueue);
+        releaseContextQuietly(cachedContext);
+        cachedProgram = null;
+        cachedQueue = null;
+        cachedContext = null;
     }
 
     private static String kernelNameFor(FilterType filter) {

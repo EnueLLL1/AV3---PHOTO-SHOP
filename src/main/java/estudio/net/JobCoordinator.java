@@ -32,8 +32,10 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -75,6 +77,9 @@ public class JobCoordinator implements AutoCloseable {
         }
     }
 
+    public static final long DEFAULT_UPLOAD_TTL_MS = TimeUnit.MINUTES.toMillis(5);
+    public static final long DEFAULT_COMPLETED_TTL_MS = TimeUnit.MINUTES.toMillis(15);
+
     private final String socketHost;
     private final int socketPort;
     private final Path workRoot;
@@ -82,9 +87,12 @@ public class JobCoordinator implements AutoCloseable {
     private final String mpiMachines;
     private final String mpiHome;
     private final String classpath;
+    private final long uploadTtlMs;
+    private final long completedTtlMs;
 
     private final ConcurrentHashMap<String, JobEntry> jobs = new ConcurrentHashMap<>();
     private final ThreadPoolExecutor workerPool;
+    private final ScheduledExecutorService ttlScheduler;
     private final AtomicInteger queuedOrActive = new AtomicInteger(0);
 
     public JobCoordinator(
@@ -96,6 +104,35 @@ public class JobCoordinator implements AutoCloseable {
             String mpiMachines,
             String mpiHome,
             String classpath) {
+        this(socketHost, socketPort, maxConcurrentJobs, workRoot, mpiDev, mpiMachines, mpiHome, classpath,
+                DEFAULT_UPLOAD_TTL_MS, DEFAULT_COMPLETED_TTL_MS);
+    }
+
+    public JobCoordinator(
+            String socketHost,
+            int socketPort,
+            int maxConcurrentJobs,
+            Path workRoot,
+            String mpiDev,
+            String mpiMachines,
+            String mpiHome,
+            String classpath,
+            long uploadTtlMs) {
+        this(socketHost, socketPort, maxConcurrentJobs, workRoot, mpiDev, mpiMachines, mpiHome, classpath,
+                uploadTtlMs, DEFAULT_COMPLETED_TTL_MS);
+    }
+
+    public JobCoordinator(
+            String socketHost,
+            int socketPort,
+            int maxConcurrentJobs,
+            Path workRoot,
+            String mpiDev,
+            String mpiMachines,
+            String mpiHome,
+            String classpath,
+            long uploadTtlMs,
+            long completedTtlMs) {
         if (Objects.requireNonNull(socketHost, "socketHost must not be null").isBlank()) {
             throw new IllegalArgumentException("socketHost must not be blank");
         }
@@ -112,6 +149,8 @@ public class JobCoordinator implements AutoCloseable {
         this.mpiMachines = mpiMachines;
         this.mpiHome = mpiHome;
         this.classpath = classpath;
+        this.uploadTtlMs = uploadTtlMs <= 0L ? DEFAULT_UPLOAD_TTL_MS : uploadTtlMs;
+        this.completedTtlMs = completedTtlMs <= 0L ? DEFAULT_COMPLETED_TTL_MS : completedTtlMs;
 
         this.workerPool = new ThreadPoolExecutor(
                 maxConcurrentJobs,
@@ -119,6 +158,11 @@ public class JobCoordinator implements AutoCloseable {
                 0L,
                 TimeUnit.MILLISECONDS,
                 new LinkedBlockingQueue<>());
+        this.ttlScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "job-coordinator-ttl");
+            t.setDaemon(true);
+            return t;
+        });
     }
 
     public JobTicket submitJob(JobRequest request) {
@@ -145,7 +189,21 @@ public class JobCoordinator implements AutoCloseable {
         jobs.put(jobId, entry);
 
         int queuePosition = Math.max(0, queuedOrActive.getAndIncrement());
+        ttlScheduler.schedule(() -> expireIfAwaitingUpload(jobId, entry, jobDir), uploadTtlMs, TimeUnit.MILLISECONDS);
         return new JobTicket(jobId, socketHost, socketPort, queuePosition);
+    }
+
+    private void expireIfAwaitingUpload(String jobId, JobEntry entry, Path jobDir) {
+        JobStatus current = entry.status.get();
+        if (current.getState() != JobStatus.State.AWAITING_UPLOAD) {
+            return;
+        }
+        JobStatus expired = new JobStatus(jobId, JobStatus.State.FAILED, 0, 1, "Upload TTL expired");
+        if (entry.status.compareAndSet(current, expired)) {
+            releaseSlot(entry);
+            deleteRecursively(jobDir);
+            jobs.remove(jobId, entry);
+        }
     }
 
     public JobStatus getJobStatus(String jobId) {
@@ -170,87 +228,92 @@ public class JobCoordinator implements AutoCloseable {
         Objects.requireNonNull(socket, "socket must not be null");
         Path stagingDir = workRoot.resolve("staging").resolve(UUID.randomUUID().toString());
         JobEntry entry = null;
+        boolean ownsSlot = false;
         boolean submittedToPool = false;
 
-        try (socket;
-             DataInputStream in = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
-             DataOutputStream out = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()))) {
-
-            TcpProtocol.UploadBatch batch = TcpProtocol.readUploadBatch(in, stagingDir);
-            entry = jobs.get(batch.jobId());
-            if (entry == null) {
-                TcpProtocol.sendError(out, "Unknown jobId: " + batch.jobId());
-                return;
-            }
-
-            JobStatus current = entry.status.get();
-            int totalSteps = estimateTotalSteps(entry.request, batch.files().size());
-            JobStatus queuedStatus = new JobStatus(
-                    entry.jobId,
-                    JobStatus.State.QUEUED,
-                    0,
-                    totalSteps,
-                    "Lote recebido (" + batch.files().size() + " imagens); na fila");
-            if (current.getState() != JobStatus.State.AWAITING_UPLOAD
-                    || !entry.status.compareAndSet(current, queuedStatus)) {
-                TcpProtocol.sendError(out, "Job " + entry.jobId + " is not awaiting upload (state=" + current.getState() + ")");
-                return;
-            }
-
-            List<Path> stagedSorted = new ArrayList<>(batch.files());
-            stagedSorted.sort(Comparator.comparing(p -> p.getFileName().toString()));
-
-            List<Path> inputFiles = new ArrayList<>(stagedSorted.size());
-            for (Path stagedFile : stagedSorted) {
-                Path target = entry.inputDir.resolve(stagedFile.getFileName().toString());
-                Files.move(stagedFile, target, StandardCopyOption.REPLACE_EXISTING);
-                inputFiles.add(target);
-            }
-            entry.inputFiles = List.copyOf(inputFiles);
-
-            final JobEntry jobToRun = entry;
+        try (socket) {
             try {
-                workerPool.submit(() -> executeJob(jobToRun));
-                submittedToPool = true;
-            } catch (RejectedExecutionException rejected) {
-                markFailedBeforeExecution(entry, "Coordinator is shutting down");
-                TcpProtocol.sendError(out, "Coordinator is shutting down");
-                return;
-            }
+                DataInputStream in = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
+                DataOutputStream out = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
 
-            TcpProtocol.sendProgress(out, JobStatus.State.QUEUED, 0, totalSteps, queuedStatus.getMessage());
+                TcpProtocol.UploadBatch batch = TcpProtocol.readUploadBatch(in, stagingDir);
+                entry = jobs.get(batch.jobId());
+                if (entry == null) {
+                    TcpProtocol.sendError(out, "Unknown jobId: " + batch.jobId());
+                    return;
+                }
 
-            while (true) {
-                ServerEvent event = entry.events.take();
-                switch (event) {
-                    case ProgressEvent p -> TcpProtocol.sendProgress(
-                            out, p.state(), p.completedSteps(), p.totalSteps(), p.message());
-                    case CompletedEvent c -> {
-                        TcpProtocol.sendReport(out, c.report());
-                        for (Path outFile : c.outputFiles()) {
-                            TcpProtocol.sendImage(out, outFile);
+                JobStatus current = entry.status.get();
+                int totalSteps = estimateTotalSteps(entry.request, batch.files().size());
+                JobStatus queuedStatus = new JobStatus(
+                        entry.jobId,
+                        JobStatus.State.QUEUED,
+                        0,
+                        totalSteps,
+                        "Lote recebido (" + batch.files().size() + " imagens); na fila");
+                if (current.getState() != JobStatus.State.AWAITING_UPLOAD
+                        || !entry.status.compareAndSet(current, queuedStatus)) {
+                    TcpProtocol.sendError(out, "Job " + entry.jobId + " is not awaiting upload (state=" + current.getState() + ")");
+                    return;
+                }
+                ownsSlot = true;
+
+                List<Path> stagedSorted = new ArrayList<>(batch.files());
+                stagedSorted.sort(Comparator.comparing(p -> p.getFileName().toString()));
+
+                List<Path> inputFiles = new ArrayList<>(stagedSorted.size());
+                for (Path stagedFile : stagedSorted) {
+                    Path target = entry.inputDir.resolve(stagedFile.getFileName().toString());
+                    Files.move(stagedFile, target, StandardCopyOption.REPLACE_EXISTING);
+                    inputFiles.add(target);
+                }
+                entry.inputFiles = List.copyOf(inputFiles);
+
+                final JobEntry jobToRun = entry;
+                try {
+                    workerPool.submit(() -> executeJob(jobToRun));
+                    submittedToPool = true;
+                } catch (RejectedExecutionException rejected) {
+                    markFailedBeforeExecution(entry, "Coordinator is shutting down");
+                    TcpProtocol.sendError(out, "Coordinator is shutting down");
+                    return;
+                }
+
+                TcpProtocol.sendProgress(out, JobStatus.State.QUEUED, 0, totalSteps, queuedStatus.getMessage());
+
+                while (true) {
+                    ServerEvent event = entry.events.take();
+                    switch (event) {
+                        case ProgressEvent p -> TcpProtocol.sendProgress(
+                                out, p.state(), p.completedSteps(), p.totalSteps(), p.message());
+                        case CompletedEvent c -> {
+                            TcpProtocol.sendReport(out, c.report());
+                            for (Path outFile : c.outputFiles()) {
+                                TcpProtocol.sendImage(out, outFile);
+                            }
+                            TcpProtocol.sendDone(out, "Job " + entry.jobId + " finalizado (" + c.outputFiles().size() + " imagens)");
+                            return;
                         }
-                        TcpProtocol.sendDone(out, "Job " + entry.jobId + " finalizado (" + c.outputFiles().size() + " imagens)");
-                        return;
-                    }
-                    case FailedEvent f -> {
-                        TcpProtocol.sendError(out, f.errorMessage());
-                        return;
+                        case FailedEvent f -> {
+                            TcpProtocol.sendError(out, f.errorMessage());
+                            return;
+                        }
                     }
                 }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                if (entry != null && ownsSlot && !submittedToPool) {
+                    markFailedBeforeExecution(entry, "Interrupted during upload");
+                }
+            } catch (Exception e) {
+                if (entry != null && ownsSlot && !submittedToPool) {
+                    markFailedBeforeExecution(entry, conciseMessage(e));
+                }
+                trySendErrorQuietly(socket, e);
             }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            if (entry != null && !submittedToPool) {
-                markFailedBeforeExecution(entry, "Interrupted during upload");
-            }
-        } catch (Exception e) {
-            if (entry != null && !submittedToPool) {
-                markFailedBeforeExecution(entry, conciseMessage(e));
-            }
-            trySendErrorQuietly(socket, e);
+        } catch (IOException ignored) {
         } finally {
-            if (entry != null && !submittedToPool) {
+            if (entry != null && ownsSlot && !submittedToPool) {
                 releaseSlot(entry);
             }
             deleteRecursively(stagingDir);
@@ -302,7 +365,31 @@ public class JobCoordinator implements AutoCloseable {
             entry.events.offer(new FailedEvent(reason));
         } finally {
             releaseSlot(entry);
+            scheduleFinishedJobEviction(entry);
         }
+    }
+
+    private void scheduleFinishedJobEviction(JobEntry entry) {
+        if (ttlScheduler.isShutdown()) {
+            return;
+        }
+        try {
+            ttlScheduler.schedule(() -> evictFinishedJob(entry), completedTtlMs, TimeUnit.MILLISECONDS);
+        } catch (RejectedExecutionException ignored) {
+        }
+    }
+
+    private void evictFinishedJob(JobEntry entry) {
+        JobStatus.State state = entry.status.get().getState();
+        if (state != JobStatus.State.COMPLETED && state != JobStatus.State.FAILED) {
+            return;
+        }
+        if (jobs.get(entry.jobId) != entry) {
+            return;
+        }
+        Path jobDir = entry.inputDir.getParent();
+        deleteRecursively(jobDir);
+        jobs.remove(entry.jobId, entry);
     }
 
     private record SingleOutcome(BenchmarkReport report, List<Path> outputFiles) {
@@ -323,16 +410,21 @@ public class JobCoordinator implements AutoCloseable {
         Path modeOutDir = entry.outputDir.resolve(mode.name().toLowerCase(Locale.ROOT));
 
         ImageEngine engine = createEngine(mode, req);
-        ImageEngine.EngineResult res = engine.process(
-                inputs,
-                modeOutDir,
-                filter,
-                (step, total, detail) -> emitProgress(
-                        entry,
-                        JobStatus.State.RUNNING,
-                        step,
-                        Math.max(1, total),
-                        mode.name() + ": " + detail));
+        ImageEngine.EngineResult res;
+        try {
+            res = engine.process(
+                    inputs,
+                    modeOutDir,
+                    filter,
+                    (step, total, detail) -> emitProgress(
+                            entry,
+                            JobStatus.State.RUNNING,
+                            step,
+                            Math.max(1, total),
+                            mode.name() + ": " + detail));
+        } finally {
+            closeEngineQuietly(engine);
+        }
 
         boolean isSeq = mode == ExecutionMode.SEQUENTIAL;
         double speedup = isSeq ? 1.0 : 0.0;
@@ -415,16 +507,21 @@ public class JobCoordinator implements AutoCloseable {
 
             try {
                 ImageEngine engine = createEngine(stage.mode(), req);
-                ImageEngine.EngineResult res = engine.process(
-                        inputs,
-                        stageOutDir,
-                        filter,
-                        (step, total, detail) -> emitProgress(
-                                entry,
-                                JobStatus.State.RUNNING,
-                                Math.min(totalSteps, stepOffset + step),
-                                totalSteps,
-                                stage.label() + ": " + detail));
+                ImageEngine.EngineResult res;
+                try {
+                    res = engine.process(
+                            inputs,
+                            stageOutDir,
+                            filter,
+                            (step, total, detail) -> emitProgress(
+                                    entry,
+                                    JobStatus.State.RUNNING,
+                                    Math.min(totalSteps, stepOffset + step),
+                                    totalSteps,
+                                    stage.label() + ": " + detail));
+                } finally {
+                    closeEngineQuietly(engine);
+                }
 
                 List<Path> stageFiles = listSortedPngs(stageOutDir);
                 PixelVerifier.Result verifyResult = PixelVerifier.verifyDirectories(seqFiles, stageFiles);
@@ -488,6 +585,15 @@ public class JobCoordinator implements AutoCloseable {
         };
     }
 
+    private static void closeEngineQuietly(ImageEngine engine) {
+        if (engine instanceof AutoCloseable closeable) {
+            try {
+                closeable.close();
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
     private String normalizeMpiDevLabel() {
         if (mpiDev == null || mpiDev.isBlank()) {
             return "MULTICORE";
@@ -507,6 +613,7 @@ public class JobCoordinator implements AutoCloseable {
 
     private void markFailedBeforeExecution(JobEntry entry, String message) {
         entry.status.set(new JobStatus(entry.jobId, JobStatus.State.FAILED, 0, 1, message));
+        scheduleFinishedJobEviction(entry);
     }
 
     private void releaseSlot(JobEntry entry) {
@@ -551,20 +658,34 @@ public class JobCoordinator implements AutoCloseable {
         if (root == null || !Files.exists(root)) {
             return;
         }
-        try (Stream<Path> walk = Files.walk(root)) {
-            walk.sorted(Comparator.reverseOrder())
-                    .forEach(path -> {
-                        try {
-                            Files.deleteIfExists(path);
-                        } catch (IOException ignored) {
-                        }
-                    });
-        } catch (IOException ignored) {
+        for (int attempt = 0; attempt < 3; attempt++) {
+            try (Stream<Path> walk = Files.walk(root)) {
+                walk.sorted(Comparator.reverseOrder())
+                        .forEach(path -> {
+                            try {
+                                Files.deleteIfExists(path);
+                            } catch (IOException ignored) {
+                            }
+                        });
+            } catch (IOException ignored) {
+            }
+            if (!Files.exists(root)) {
+                return;
+            }
+            if (attempt < 2) {
+                try {
+                    Thread.sleep(50L);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
         }
     }
 
     @Override
     public void close() {
+        ttlScheduler.shutdownNow();
         workerPool.shutdown();
         try {
             if (!workerPool.awaitTermination(5, TimeUnit.SECONDS)) {

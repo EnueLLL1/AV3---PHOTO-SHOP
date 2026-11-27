@@ -24,19 +24,22 @@ import java.util.stream.Stream;
 public class MpjSubprocessEngine implements ImageEngine {
     private static final int DEFAULT_NP = 4;
     private static final String DEFAULT_DEV_MODE = "multicore";
+    public static final long DEFAULT_TIMEOUT_MS = TimeUnit.MINUTES.toMillis(10);
+    public static final int MAX_OUTPUT_LOG_CHARS = 65_536;
 
     private final int np;
     private final String devMode;
     private final String machinesFile;
     private final String mpjHome;
     private final String classpath;
+    private final long timeoutMs;
 
     public MpjSubprocessEngine() {
-        this(DEFAULT_NP, DEFAULT_DEV_MODE, null, null, null);
+        this(DEFAULT_NP, DEFAULT_DEV_MODE, null, null, null, DEFAULT_TIMEOUT_MS);
     }
 
     public MpjSubprocessEngine(int np, String devMode) {
-        this(np, devMode, null, null, null);
+        this(np, devMode, null, null, null, DEFAULT_TIMEOUT_MS);
     }
 
     public MpjSubprocessEngine(
@@ -45,6 +48,16 @@ public class MpjSubprocessEngine implements ImageEngine {
             String machinesFile,
             String mpjHome,
             String classpath) {
+        this(np, devMode, machinesFile, mpjHome, classpath, DEFAULT_TIMEOUT_MS);
+    }
+
+    public MpjSubprocessEngine(
+            int np,
+            String devMode,
+            String machinesFile,
+            String mpjHome,
+            String classpath,
+            long timeoutMs) {
         this.np = np <= 0 ? DEFAULT_NP : np;
         this.devMode = (devMode == null || devMode.isBlank())
                 ? DEFAULT_DEV_MODE
@@ -56,6 +69,7 @@ public class MpjSubprocessEngine implements ImageEngine {
         this.classpath = (classpath == null || classpath.isBlank())
                 ? buildDefaultClasspath()
                 : classpath;
+        this.timeoutMs = timeoutMs <= 0L ? DEFAULT_TIMEOUT_MS : timeoutMs;
     }
 
     @Override
@@ -113,17 +127,56 @@ public class MpjSubprocessEngine implements ImageEngine {
             long totalStartNs = System.nanoTime();
             Process process = pb.start();
             StringBuilder outputLog = new StringBuilder();
+            Thread outputReader = new Thread(() -> {
+                boolean truncated = false;
+                try (BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (!truncated) {
+                            int remaining = MAX_OUTPUT_LOG_CHARS - outputLog.length();
+                            if (remaining <= 0) {
+                                outputLog.append(System.lineSeparator()).append("...[truncated]");
+                                truncated = true;
+                            } else if (line.length() + System.lineSeparator().length() > remaining) {
+                                outputLog.append(line, 0, Math.min(line.length(), remaining))
+                                        .append(System.lineSeparator()).append("...[truncated]");
+                                truncated = true;
+                            } else {
+                                outputLog.append(line).append(System.lineSeparator());
+                            }
+                        }
+                        handleProgressLine(line, listener);
+                    }
+                } catch (IOException ignored) {
+                }
+            }, "mpj-output-reader");
+            outputReader.setDaemon(true);
+            outputReader.start();
 
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    outputLog.append(line).append(System.lineSeparator());
-                    handleProgressLine(line, listener);
+            int exitCode;
+            try {
+                boolean finished = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS);
+                if (!finished) {
+                    process.destroyForcibly();
+                    throw new IOException("MPJ subprocess timed out after " + timeoutMs + " ms");
+                }
+                exitCode = process.exitValue();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                process.destroyForcibly();
+                throw e;
+            } finally {
+                if (process.isAlive()) {
+                    process.destroyForcibly();
+                }
+                try {
+                    outputReader.join(1_000L);
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
                 }
             }
 
-            int exitCode = process.waitFor();
             long totalMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - totalStartNs);
 
             if (exitCode != 0) {
